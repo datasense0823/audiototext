@@ -1,0 +1,91 @@
+import streamlit as st
+import speech_recognition as sr
+from langchain.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
+
+# Initialize recognizer
+recognizer = sr.Recognizer()
+
+# Function to record and transcribe audio
+def record_audio():
+    with sr.Microphone() as source:
+        st.info("🎙️ Speak into the microphone...")
+        audio_data = recognizer.listen(source)
+        st.success("Recording complete! Transcribing...")
+
+        try:
+            text = recognizer.recognize_google(audio_data)
+            return text
+        except sr.UnknownValueError:
+            st.error("❌ Could not understand the audio.")
+        except sr.RequestError:
+            st.error("❌ Could not reach the transcription service.")
+        return None
+
+# Function to summarize text and clean up bullet points
+def summarize_text(text):
+    llm = ChatOllama(model="llama3.2", temperature=0)
+    prompt_template = PromptTemplate(input_variables=["text"], template="Summarize the following text into 5 concise bullet points:\n\n{text}")
+    prompt = prompt_template.format(text=text)
+    summary = llm.invoke(prompt).content
+    
+    # Clean up and filter out unwanted lines or symbols
+    bullet_points = [line.strip("• ").strip() for line in summary.splitlines() if line.strip() and not line.startswith("Here are")]
+    return bullet_points
+
+# Streamlit UI
+st.set_page_config(page_title="Audio Summarizer", layout="centered")
+st.title("🎤 Audio-to-Text Summarizer")
+st.write("Press 'Start Recording' to record audio, then view the transcription and a 5-point summary.")
+
+# Interactive buttons and status
+if 'recording' not in st.session_state:
+    st.session_state['recording'] = False
+if 'transcribed_text' not in st.session_state:
+    st.session_state['transcribed_text'] = ""
+if 'summary' not in st.session_state:
+    st.session_state['summary'] = []
+
+# Layout columns for buttons
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("▶️ Start Recording"):
+        st.session_state['recording'] = True
+        with st.spinner("Recording audio..."):
+            st.session_state['transcribed_text'] = record_audio()
+            st.session_state['summary'] = summarize_text(st.session_state['transcribed_text']) if st.session_state['transcribed_text'] else []
+
+with col2:
+    if st.button("⏹️ End Recording"):
+        st.session_state['recording'] = False
+
+# Display transcribed text
+if st.session_state['transcribed_text']:
+    st.subheader("📝 Transcribed Text")
+    st.write(f"> {st.session_state['transcribed_text']}")
+
+# Display summary heading and cleaned-up bullet points without stars
+if st.session_state['summary']:
+    st.subheader("📑 Summary (Top 5 Points)")
+    st.markdown(
+        """
+        <style>
+            .summary-container {
+                background-color: #f9f9f9;
+                padding: 15px;
+                border-radius: 10px;
+                box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+            }
+            .bullet-point {
+                font-size: 16px;
+                margin: 8px 0;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    st.markdown('<div class="summary-container">', unsafe_allow_html=True)
+    for i, point in enumerate(st.session_state['summary'], 1):
+        st.markdown(f'<div class="bullet-point">{i}. {point}</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
